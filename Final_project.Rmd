@@ -1,0 +1,60 @@
+---
+title: "Final_project"
+author: "Flora"
+date: "2024-12-12"
+output: html_document
+---
+
+# Reading packages and setting up theme
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(tidytuesdayR))
+
+theme_set(theme_minimal())
+```
+
+# Reading data
+```{r}
+tuesdata <- tt_load('2021-04-20')
+netflix <- tuesdata$netflix
+```
+
+# Exploring and cleaning/recoding variables
+```{r}
+# checking variable values
+netflix %>% glimpse()
+netflix %>% count(type)
+netflix %>% count(release_year)
+netflix %>% reframe(range_release_year = range(release_year)) # 1925-2021
+netflix %>% count(country)
+netflix %>% count(duration)
+netflix %>% count(date_added)
+
+# tidying variables
+netflix_tidy <- netflix %>% 
+  mutate(type = factor(type)) %>% 
+  separate(duration, into = c("duration", "duration_units"), sep = " ", convert = TRUE) %>% 
+  mutate(
+    duration_units = case_when(
+      duration_units == "min" ~ "minutes",
+      duration_units == "Season" ~ "seasons",
+      duration_units == "Seasons" ~ "seasons"
+    )
+  ) %>%
+  mutate(duration_units = factor(duration_units)) %>% 
+  mutate(date_added = mdy(date_added),
+         year_added = year(date_added)
+  )
+
+# checking tidied variables
+netflix_tidy %>% count(duration)
+netflix_tidy %>% count(duration_units)
+netflix_tidy %>% count(date_added)
+netflix_tidy %>% count(year_added)
+```
+
+# Exploratory data analysis
+```{r}
+
+```
+
