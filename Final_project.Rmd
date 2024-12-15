@@ -1,5 +1,5 @@
 ---
-title: "Final_project: Netflix dataset"
+title: "Final project: Netflix dataset"
 ---
 
 # Reading packages and setting up theme
