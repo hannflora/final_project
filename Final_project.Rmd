@@ -341,7 +341,7 @@ duration_trend %>%
   ggplot(aes(release_year, duration)) +
   geom_jitter(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Duration of movies over time by rating",
+  labs(title = "Duration of movies over time",
        x = "Release year", y = "Duration (minutes)")
 ```
 
