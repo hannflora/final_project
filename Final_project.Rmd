@@ -255,7 +255,7 @@ qqline(residuals(duration_trend_model_simple), col = "red")
 
 ### Checking linearity
 
-#### Both models (only one scale variable)
+#### Both models (only one continuous variable)
 
 ```{r}
 # crPlots(duration_trend_model_complex) -> not available for interactions
@@ -314,7 +314,7 @@ check_heteroskedasticity(duration_trend_model_complex_log)
 ### Multicollinearity
 
 ```{r}
-# I will skip this step since there is only one scale predictor in the model.
+# I will skip this step since there is only one continuous predictor in the model.
 ```
 
 ## Comparing models
