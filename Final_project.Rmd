@@ -1,27 +1,33 @@
 ---
-title: "Final_project"
-author: "Flora"
-date: "2024-12-12"
-output: html_document
+title: "Final_project: Netflix dataset"
 ---
 
 # Reading packages and setting up theme
+
 ```{r}
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(tidytuesdayR))
+suppressPackageStartupMessages(library(wesanderson))
+suppressPackageStartupMessages(library(sjPlot))
+suppressPackageStartupMessages(library(car))
+suppressPackageStartupMessages(library(performance))
+suppressPackageStartupMessages(library(robust))
 
 theme_set(theme_minimal())
 ```
 
 # Reading data
+
 ```{r}
 tuesdata <- tt_load('2021-04-20')
 netflix <- tuesdata$netflix
 ```
 
 # Exploring and cleaning/recoding variables
+
+## Checking data structure and variable values
+
 ```{r}
-# checking variable values
 netflix %>% glimpse()
 netflix %>% count(type)
 netflix %>% count(release_year)
@@ -29,8 +35,11 @@ netflix %>% reframe(range_release_year = range(release_year)) # 1925-2021
 netflix %>% count(country)
 netflix %>% count(duration)
 netflix %>% count(date_added)
+```
 
-# tidying variables
+## Tidying variables
+
+```{r}
 netflix_tidy <- netflix %>% 
   mutate(type = factor(type)) %>% 
   separate(duration, into = c("duration", "duration_units"), sep = " ", convert = TRUE) %>% 
@@ -46,15 +55,317 @@ netflix_tidy <- netflix %>%
          year_added = year(date_added)
   )
 
-# checking tidied variables
 netflix_tidy %>% count(duration)
 netflix_tidy %>% count(duration_units)
 netflix_tidy %>% count(date_added)
 netflix_tidy %>% count(year_added)
 ```
 
-# Exploratory data analysis
-```{r}
+## Checking for duplicates
 
+```{r}
+duplicate_show_ids <- netflix_tidy %>%
+  filter(duplicated(show_id) | duplicated(show_id, fromLast = TRUE))
+  # -> no duplicates found
 ```
 
+## Checking for and identifying missing values
+
+```{r}
+anyNA(netflix_tidy)
+
+missing_summary <- netflix_tidy %>%
+  summarise(
+    country_missing = sum(is.na(country)),
+    director_missing = sum(is.na(director)),
+    cast_missing = sum(is.na(cast))
+  )
+missing_summary
+
+missing_percent <- netflix_tidy %>%
+  summarise(
+    country_missing_pct = mean(is.na(country)) * 100,
+    director_missing_pct = mean(is.na(director)) * 100,
+    cast_missing_pct = mean(is.na(cast)) * 100
+  )
+missing_percent
+```
+
+# Exploratory data analysis
+
+## Plotting distributions
+
+### Content types
+
+```{r}
+netflix_tidy %>%
+  count(type) %>%
+  ggplot(aes("", n, fill = type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  labs(title = "Distribution of content types on Netflix",
+       x = NULL, y = NULL,
+       fill = "Content type") +
+  theme_void()
+```
+
+### Content by country
+
+```{r}
+netflix_tidy %>%
+  count(country, sort = TRUE) %>%
+  filter(n > 100) %>%
+  filter(!is.na(country)) %>%
+  ggplot(aes(fct_reorder(country, n), n)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Content by country on Netflix",
+       x = "Country", y = "Number of movies/shows")
+```
+
+### Release year by content type
+
+```{r}
+# density plot of release year by type
+netflix_tidy %>%
+  ggplot(aes(release_year, fill = type)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Release year distribution by content type",
+       x = "Release year", y = "Density",
+       fill = "Content type") +
+  facet_wrap(~type, ncol = 1, scales = "free_y")
+```
+
+### Duration by genre
+
+```{r}
+netflix_tidy %>% 
+  filter(type == "Movie") %>%
+  filter(listed_in != "Movies") %>% 
+  separate_rows(listed_in, sep = ", ") %>%
+  group_by(genre = factor(listed_in)) %>%
+  reframe(
+    n = n(),
+    mean_duration = mean(duration),
+  ) %>%
+  ggplot(aes(mean_duration, reorder(genre, mean_duration), fill = reorder(genre, mean_duration))) +
+  geom_col() +
+  theme(legend.position = "none") +
+  labs(title = "Average duration of movies by genre",
+       x = "Average duration (minutes)", y = "Genre")
+```
+
+### Rating by genre
+
+```{r}
+netflix_tidy %>%
+  filter(type == "Movie") %>% 
+  separate_rows(listed_in, sep = ", ") %>%
+  count(genre = listed_in, rating) %>% 
+  group_by(genre) %>% 
+  mutate(percentage = n / sum(n) * 100) %>% 
+  ungroup() %>% 
+  ggplot(aes("", percentage, fill = rating)) +
+  geom_bar(stat = "identity", width = 1, color = "white", size = 0.25) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~genre) +
+  labs(
+    title = "Ratings Distribution in Each Genre",
+    fill = "Rating"
+  ) +
+  theme_void() +
+  theme(strip.text = element_text(size = 10, face = "bold"))
+```
+
+# Hypothesis testing
+
+## Hypothesis: The duration of movies has decreased over time due to the popularity of bite-sized content. I also included rating as a predictor to see if certain ratings are more affected by this trend than others.
+
+## Data preparation
+
+```{r}
+duration_trend <- netflix_tidy %>%
+  filter(!is.na(duration), !is.na(release_year), !is.na(type), !is.na(rating)) %>%
+  filter(type == "Movie")
+```
+
+## Buiding the complex model
+
+```{r}
+duration_trend_model_complex <- lm(duration ~ release_year * rating, data = duration_trend)
+summary(duration_trend_model_complex)
+tab_model(duration_trend_model_complex, show.aic = TRUE)
+```
+
+## Building the simple model
+
+```{r}
+duration_trend_model_simple <- lm(duration ~ release_year, data = duration_trend)
+summary(duration_trend_model_simple)
+tab_model(duration_trend_model_simple, show.aic = TRUE)
+```
+
+## Model diagnostics
+
+### Checking for influential outliers
+
+```{r}
+plot(duration_trend_model_complex, which = 4)
+cooks_distance <- cooks.distance(duration_trend_model_complex)
+influential_points <- which(cooks_distance > (4 / nrow(duration_trend)))
+influential_points
+
+# removing influential outliers
+duration_trend_no_outliers <- duration_trend %>%
+  slice(-influential_points)
+
+# re-running both models without influential outliers
+duration_trend_model_complex_no_outliers <- lm(duration ~ release_year * rating, data = duration_trend_no_outliers)
+summary(duration_trend_model_complex_no_outliers)
+tab_model(duration_trend_model_complex_no_outliers, show.aic = TRUE)
+
+duration_trend_model_simple_no_outliers <- lm(duration ~ release_year, data = duration_trend_no_outliers)
+summary(duration_trend_model_simple_no_outliers)
+tab_model(duration_trend_model_simple_no_outliers, show.aic = TRUE)
+
+# The model matrix became rank deficient and some paramteres were not estimable. Therefore, I decided not to remove outliers from the model, as they likely represent valid aspects of the data.
+```
+
+### Checking normality
+
+#### Complex model
+
+```{r}
+qqnorm(residuals(duration_trend_model_complex))
+qqline(residuals(duration_trend_model_complex), col = "red")
+# looks fairly normal
+
+# too many observations (>5000) to run a Shapiro-wilk test
+```
+
+#### Simple model
+
+```{r}
+qqnorm(residuals(duration_trend_model_simple))
+qqline(residuals(duration_trend_model_simple), col = "red")
+# looks fairly normal
+
+# too many observations (>5000) to run a Shapiro-wilk test
+```
+
+### Checking linearity
+
+#### Both models (only one scale variable)
+
+```{r}
+# crPlots(duration_trend_model_complex) -> not available for interactions
+
+crPlots(duration_trend_model_simple)
+# looks farily linear
+```
+
+### Checking homoscedasticity
+
+#### Complex model
+
+```{r}
+plot(fitted(duration_trend_model_complex), residuals(duration_trend_model_complex), main = "Residuals vs Fitted", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+plot(duration_trend_model_complex, which = 3)
+
+check_heteroskedasticity(duration_trend_model_complex)
+  # the assumption of homoscedasticity does not seem to be met -> attemtping the log-transformation of the dependent variable
+```
+
+#### Simple model
+
+```{r}
+plot(fitted(duration_trend_model_simple), residuals(duration_trend_model_simple), main = "Residuals vs Fitted", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+plot(duration_trend_model_simple, which = 3)
+
+check_heteroskedasticity(duration_trend_model_simple)
+  # the assumption of homoscedasticity does not seem to be met
+```
+
+### Log-transforming the dependent variable
+
+```{r}
+duration_trend <- duration_trend %>%
+  mutate(duration_log = log(duration))
+```
+
+### Re-running the model with log-transformed dependent variable and checking homoscedasticity
+
+```{r}
+duration_trend_model_complex_log <- lm(duration_log ~ release_year * rating, data = duration_trend)
+summary(duration_trend_model_complex_log)
+tab_model(duration_trend_model_complex_log)
+
+plot(fitted(duration_trend_model_complex_log), residuals(duration_trend_model_complex_log), main = "Residuals vs Fitted", xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, col = "red")
+check_heteroskedasticity(duration_trend_model_complex_log)
+  # the assumption of homoscedasticity still does not seem to be met
+  # I tried running a robust regression with the "robust" package, but ran into multiple errors, so I will continue with the model as is while keeping in mind its limitations.
+```
+
+### Multicollinearity
+
+```{r}
+# I will skip this step since there is only one scale predictor in the model.
+```
+
+## Comparing models
+
+```{r}
+anova(duration_trend_model_simple, duration_trend_model_complex)
+# The likelihood ratio test comparing the two models indicated a significant improvement in fit for the complex model compared to the simple model (F(26) = 43.481, p < 0.001)
+
+summary(duration_trend_model_simple)$adj.r.squared # 0.041
+summary(duration_trend_model_complex)$adj.r.squared # 0.205
+# The complex model explains significantly more variance than the simple model.
+
+# AIC comparison
+AIC(duration_trend_model_simple, duration_trend_model_complex)
+# The more complex model has a lower AIC value (rule of thumb: if a model is 2 AIC units lower than the other, it is considered significantly better).
+```
+
+## Plotting
+
+### Simple model without ratings
+
+```{r}
+duration_trend %>%
+  ggplot(aes(release_year, duration)) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Duration of movies over time by rating",
+       x = "Release year", y = "Duration (minutes)")
+```
+
+### Complex model with ratings
+
+```{r}
+duration_trend %>%
+  ggplot(aes(release_year, duration, color = rating)) +
+  geom_jitter(alpha = 0.2) +
+  geom_smooth(method = "lm", lwd = 1.5, se = FALSE) +
+  labs(title = "Duration of movies over time by rating",
+       x = "Release year", y = "Duration (minutes)",
+       color = "Rating") +
+  scale_color_viridis_d()
+```
+
+## Interpretation and conclusions
+
+### There is a significant negative coefficient for release year, suggesting that, on average, the duration of movies have decreased over time. Each additional year corresponds to an approximate decrease in duration by 0.77 minutes. This confirms our hypothesis on the decrease in duration of movies over time.
+
+### Several ratings are significantly associated with duration. For example, movies with the rating NC-17 (No One 17 and Under Admitted) have a much higher duration than the reference rating (G = General Audiences), with an increase of 30,600 minutes on average.
+
+### Many of the interaction terms are significant, indicating that the duration change over time varies across ratings.
+
+### Even the more complex model explains only about 20.5% of the variance in the data, indicating that other variables not included in the model (such as the genre, popularity, or platforms) may have a strong impact on movie duration.
+
+### The model does not meet the assumption of homoscedasticity, which may affect the reliability of the results. I attempted to log-transform the dependent variable to address this issue, but the assumption was still not met. I also attempted to run a robust regression, but ran into multiple errors. Therefore, these results should be interpreted with caution.
