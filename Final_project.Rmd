@@ -157,7 +157,7 @@ netflix_tidy %>%
 
 ### Rating by genre
 
-```{r}
+```{r fig.width = 12, fig.height = 8}
 netflix_tidy %>%
   filter(type == "Movie") %>% 
   separate_rows(listed_in, sep = ", ") %>%
